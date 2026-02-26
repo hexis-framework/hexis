@@ -119,6 +119,8 @@ Read [docs/philosophy.md](docs/philosophy.md) for the full design principles.
 | [Getting Started](docs/getting-started.md) | Manual setup guide |
 | [Skill Design Guide](docs/skill-design-guide.md) | How to create effective skills |
 | [Hook Patterns](docs/hook-patterns.md) | Taxonomy of useful hooks |
+| [Creating Skills](docs/creating-skills.md) | Tutorial: build your first skill |
+| [Creating Hooks](docs/creating-hooks.md) | Tutorial: build your first hook |
 
 ## Ecosystem
 

@@ -12,7 +12,24 @@ This guide walks you through setting up the Hexis meta-cognitive framework for C
 - [Claude Code](https://docs.anthropic.com/en/docs/claude-code) installed and working
 - Basic familiarity with Claude Code's CLAUDE.md and hooks
 
-## Step 1: Create the Directory Structure
+## Quick Setup (Recommended)
+
+```bash
+# Clone the Hexis repo
+git clone https://github.com/hexis-framework/hexis.git ~/.hexis/repo
+
+# Run the scaffolder in your project directory
+cd your-project
+~/.hexis/repo/hexis init
+```
+
+This creates the full directory structure, copies the core templates, and installs the bash-guard hook. Skip to [Step 4](#step-4-install-your-first-hook) to register the hook.
+
+## Manual Setup
+
+If you prefer to set things up by hand:
+
+### Step 1: Create the Directory Structure
 
 ```bash
 # Create Hexis directories alongside your Claude Code config
@@ -36,12 +53,12 @@ your-project/
 └── rule-violation-log.md # Enforcement escalation tracker
 ```
 
-## Step 2: Set Up CLAUDE.md
+### Step 2: Set Up CLAUDE.md
 
 Copy the template:
 
 ```bash
-cp path/to/hexis/templates/CLAUDE.md ./CLAUDE.md
+cp ~/.hexis/repo/templates/CLAUDE.md ./CLAUDE.md
 ```
 
 Edit it to add your own rules. Start with just 3-5 rules -- you'll add more as you discover what matters.
@@ -54,12 +71,12 @@ The maturity progression:
 2. **Established** -- Proven useful across sessions. Wording is stable.
 3. **Hook-enforced** -- Violated twice, now enforced by a PreToolUse or PostToolUse hook.
 
-## Step 3: Set Up MEMORY.md
+### Step 3: Set Up MEMORY.md
 
 Copy the template:
 
 ```bash
-cp path/to/hexis/templates/MEMORY.md ./MEMORY.md
+cp ~/.hexis/repo/templates/MEMORY.md ./MEMORY.md
 ```
 
 MEMORY.md captures gotchas -- things that break routine operations. The key distinction:
@@ -70,12 +87,12 @@ MEMORY.md captures gotchas -- things that break routine operations. The key dist
 
 MEMORY.md is auto-loaded by Claude Code at session start, making it ideal for high-frequency warnings that affect everyday work. Don't put long-form guides here -- just the facts that prevent repeated mistakes.
 
-## Step 4: Install Your First Hook
+### Step 4: Install Your First Hook
 
-The bash-guard hook prevents dangerous commands. Copy it from the Hexis templates:
+The bash-guard hook prevents dangerous commands. If you used `hexis init`, it's already copied. Otherwise:
 
 ```bash
-cp path/to/hexis/templates/hooks/bash-guard.js .claude/hooks/
+cp ~/.hexis/repo/templates/hooks/bash-guard.js .claude/hooks/
 ```
 
 Register it in `.claude/settings.json`:
@@ -102,12 +119,12 @@ Test it by asking Claude to run a command the hook should block. If the hook is 
 
 **How hooks work in Hexis:** Hooks are JavaScript files that run before or after Claude uses a tool. A PreToolUse hook can inspect the command and return `{"decision": "block", "reason": "..."}` to prevent it. This is the enforcement mechanism that makes rules non-optional.
 
-## Step 5: Set Up the Rule Violation Log
+### Step 5: Set Up the Rule Violation Log
 
-Copy the template:
+If you used `hexis init`, this is already in place. Otherwise:
 
 ```bash
-cp path/to/hexis/templates/rule-violation-log.md ./rule-violation-log.md
+cp ~/.hexis/repo/templates/rule-violation-log.md ./rule-violation-log.md
 ```
 
 This is the heart of Hexis's self-correction mechanism. When a rule exists but Claude still violates it:
@@ -119,7 +136,7 @@ This is the heart of Hexis's self-correction mechanism. When a rule exists but C
 
 The log creates accountability. Without it, violated rules stay as soft guidance indefinitely, and the same mistakes repeat. With it, you have a clear signal for when to invest in automation.
 
-## Step 6: Start Working
+### Step 6: Start Working
 
 That's it for the basic setup. As you use Claude Code:
 

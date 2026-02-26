@@ -143,7 +143,7 @@ cmd_add() {
     copy_if_missing "$TEMPLATES/hooks/$module.js" ".claude/hooks/$module.js"
     echo ""
     warn "Remember to register the hook in .claude/settings.json"
-    dim "See: hexis help hooks"
+    dim "See: https://github.com/hexis-framework/hexis/blob/main/docs/hook-patterns.md"
     return
   fi
 

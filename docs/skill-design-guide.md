@@ -232,3 +232,15 @@ Before doing anything, decide on:
 ```
 
 The principle: make the simple thing simple, and the complex thing possible. Most skill invocations follow the happy path. Don't front-load every edge case.
+
+## Skill Maintenance
+
+Skills drift. Periodically check each active skill for:
+
+| Check | What to look for |
+|-------|-----------------|
+| **Paths valid?** | Do file references still exist? |
+| **Workflow accurate?** | Has the process changed since the skill was written? |
+| **Context shifted?** | Has a hook, tool, or other skill made parts redundant? |
+
+The third check is the hardest to spot. A skill component can be *correct* but no longer *worth its weight* -- the environment changed around it. Example: a wrap skill's batch learnings scan becomes redundant after adding a real-time capture hook. The code works fine; it just does less than it costs. Review skills not just for bugs, but for shifts in the surrounding system.

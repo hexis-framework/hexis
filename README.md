@@ -50,25 +50,54 @@ This means you don't need to anticipate every failure mode upfront. Start with a
 
 See [docs/enforcement-escalation.md](docs/enforcement-escalation.md) for the full pattern.
 
+## Before / After
+
+Most Claude Code setups look like this:
+
+```markdown
+# CLAUDE.md
+Use TypeScript. Run tests before committing. Prefer pnpm.
+```
+
+A Hexis-powered setup looks like this:
+
+```
+project/
+├── CLAUDE.md                    # Rules with maturity annotations (🌱→📋→🔒)
+├── MEMORY.md                    # Gotchas that affect daily work
+├── rule-violation-log.md        # 2 strikes → becomes a hook
+├── .claude/
+│   ├── hooks/
+│   │   ├── bash-guard.js        # Hard gate: blocks rm -rf, unscoped grep
+│   │   └── stuck-detector.js    # Detects 3x repeated failures
+│   └── skills/
+│       ├── wrap/SKILL.md        # End-of-session review + learning capture
+│       └── decide/SKILL.md      # Structured decision-making
+└── docs/
+    └── solutions/               # Reusable how-tos (every hard fix → a doc)
+```
+
+The flat file says *what to do*. The system learns *what went wrong* and makes it impossible to repeat.
+
 ## Quick Start
 
 ```bash
-# 1. Create the directory structure
-mkdir -p .claude/hooks .claude/skills docs/solutions
+# Clone and run the scaffolder
+git clone https://github.com/hexis-framework/hexis.git ~/.hexis/repo
+cd your-project
 
-# 2. Copy the templates
-cp templates/CLAUDE.md ./CLAUDE.md
-cp templates/MEMORY.md ./MEMORY.md
-cp templates/rule-violation-log.md ./rule-violation-log.md
+# Scaffold the directory structure + core templates
+~/.hexis/repo/hexis init
 
-# 3. Install your first safety hook
-cp templates/hooks/bash-guard.js .claude/hooks/
-# Then register it in .claude/settings.json (see getting-started guide)
+# Add modules
+~/.hexis/repo/hexis add wrap              # Session wrap-up skill
+~/.hexis/repo/hexis add stuck-detector    # Repeated-failure detector
 
-# 4. Start working — the system learns as you go
+# See everything available
+~/.hexis/repo/hexis list
 ```
 
-See [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
+Or set up manually — see [docs/getting-started.md](docs/getting-started.md) for the full walkthrough.
 
 ## Philosophy
 
@@ -91,11 +120,23 @@ Read [docs/philosophy.md](docs/philosophy.md) for the full design principles.
 | [Skill Design Guide](docs/skill-design-guide.md) | How to create effective skills |
 | [Hook Patterns](docs/hook-patterns.md) | Taxonomy of useful hooks |
 
+## Ecosystem
+
+| Tool | Description |
+|------|-------------|
+| [consilium](https://github.com/hexis-framework/consilium) | Multi-model deliberation CLI — 5 frontier models debate, then a judge synthesises |
+| [oghma](https://github.com/hexis-framework/oghma) | Conversation memory daemon with semantic search |
+| [compound-engineering](https://github.com/hexis-framework/compound-engineering-plugin) | Claude Code plugin: plan → work → review → compound workflows |
+
 ## Status
 
 Hexis is in early release. The architecture and patterns are battle-tested (running 56 skills, 12 hooks, 110+ solutions KB files in daily production use), but the open-source packaging is new.
 
 Currently supports **Claude Code** only. Cross-agent support (Cursor, Copilot, Windsurf) is future work.
+
+## Contributing
+
+Issues and PRs welcome. See the [skill design guide](docs/skill-design-guide.md) and [hook patterns](docs/hook-patterns.md) if you'd like to contribute modules.
 
 ## License
 

@@ -1,0 +1,253 @@
+#!/usr/bin/env bash
+#
+# hexis — scaffolder for the Hexis meta-cognitive framework
+#
+# Usage:
+#   hexis init              Create Hexis directory structure in current project
+#   hexis add <module>      Add a module (skill, hook, or template)
+#   hexis list              List available modules
+#   hexis help              Show this help
+#
+# Hexis is the disposition layer between raw AI intelligence and effective action.
+# https://github.com/hexis-framework/hexis
+
+set -euo pipefail
+
+# --- Configuration ---
+
+# Find the Hexis install directory (where templates and examples live)
+HEXIS_HOME=""
+if [ -n "${HEXIS_HOME_OVERRIDE:-}" ]; then
+  HEXIS_HOME="$HEXIS_HOME_OVERRIDE"
+elif [ -d "$(dirname "$0")/templates" ]; then
+  # Running from a local clone
+  HEXIS_HOME="$(cd "$(dirname "$0")" && pwd)"
+elif [ -d "$HOME/.hexis/repo" ]; then
+  # Installed via git clone to ~/.hexis/repo
+  HEXIS_HOME="$HOME/.hexis/repo"
+else
+  echo "Error: Cannot find Hexis templates."
+  echo ""
+  echo "Either:"
+  echo "  1. Run hexis from the cloned repo directory"
+  echo "  2. Clone to ~/.hexis/repo:"
+  echo "     git clone https://github.com/hexis-framework/hexis.git ~/.hexis/repo"
+  exit 1
+fi
+
+TEMPLATES="$HEXIS_HOME/templates"
+EXAMPLES="$HEXIS_HOME/examples"
+
+# --- Colors (if terminal supports them) ---
+
+if [ -t 1 ]; then
+  BOLD="\033[1m"
+  DIM="\033[2m"
+  GREEN="\033[32m"
+  YELLOW="\033[33m"
+  RED="\033[31m"
+  RESET="\033[0m"
+else
+  BOLD="" DIM="" GREEN="" YELLOW="" RED="" RESET=""
+fi
+
+# --- Helpers ---
+
+info()  { printf "${GREEN}✓${RESET} %s\n" "$1"; }
+warn()  { printf "${YELLOW}!${RESET} %s\n" "$1"; }
+error() { printf "${RED}✗${RESET} %s\n" "$1" >&2; }
+dim()   { printf "${DIM}  %s${RESET}\n" "$1"; }
+
+copy_if_missing() {
+  local src="$1" dest="$2"
+  if [ -f "$dest" ]; then
+    warn "Already exists: $dest (skipped)"
+  else
+    mkdir -p "$(dirname "$dest")"
+    cp "$src" "$dest"
+    info "Created: $dest"
+  fi
+}
+
+# --- Commands ---
+
+cmd_init() {
+  echo ""
+  printf "${BOLD}Initializing Hexis in $(pwd)${RESET}\n"
+  echo ""
+
+  # Create directory structure
+  mkdir -p .claude/hooks
+  mkdir -p .claude/skills
+  mkdir -p docs/solutions
+  dim "Created .claude/hooks/, .claude/skills/, docs/solutions/"
+
+  # Copy core templates
+  copy_if_missing "$TEMPLATES/CLAUDE.md" "CLAUDE.md"
+  copy_if_missing "$TEMPLATES/MEMORY.md" "MEMORY.md"
+  copy_if_missing "$TEMPLATES/rule-violation-log.md" "rule-violation-log.md"
+
+  # Copy safety hook
+  copy_if_missing "$TEMPLATES/hooks/bash-guard.js" ".claude/hooks/bash-guard.js"
+
+  echo ""
+  printf "${BOLD}Next steps:${RESET}\n"
+  echo "  1. Edit CLAUDE.md — add your rules and conventions"
+  echo "  2. Register the bash-guard hook in .claude/settings.json:"
+  echo ""
+  echo '     {'
+  echo '       "hooks": {'
+  echo '         "PreToolUse": [{'
+  echo '           "matcher": "Bash",'
+  echo '           "hooks": [{ "type": "command", "command": "node .claude/hooks/bash-guard.js" }]'
+  echo '         }]'
+  echo '       }'
+  echo '     }'
+  echo ""
+  echo "  3. Run 'hexis list' to see available modules"
+  echo "  4. Run 'hexis add <module>' to add skills and hooks"
+  echo ""
+  echo "  See: https://github.com/hexis-framework/hexis/blob/main/docs/getting-started.md"
+  echo ""
+}
+
+cmd_add() {
+  local module="${1:-}"
+
+  if [ -z "$module" ]; then
+    error "Usage: hexis add <module>"
+    echo ""
+    echo "Run 'hexis list' to see available modules."
+    exit 1
+  fi
+
+  # Check skills
+  if [ -d "$EXAMPLES/skills/$module" ]; then
+    local dest=".claude/skills/$module"
+    if [ -d "$dest" ]; then
+      warn "Already exists: $dest"
+      echo "  Remove it first if you want to replace it."
+      exit 1
+    fi
+    mkdir -p "$dest"
+    cp -r "$EXAMPLES/skills/$module/"* "$dest/"
+    info "Added skill: $module → $dest/"
+    echo ""
+    dim "Restart Claude Code to activate the skill."
+    dim "Invoke with: /$module"
+    return
+  fi
+
+  # Check hooks
+  if [ -f "$TEMPLATES/hooks/$module.js" ]; then
+    copy_if_missing "$TEMPLATES/hooks/$module.js" ".claude/hooks/$module.js"
+    echo ""
+    warn "Remember to register the hook in .claude/settings.json"
+    dim "See: hexis help hooks"
+    return
+  fi
+
+  # Check templates
+  if [ -f "$TEMPLATES/$module.md" ] || [ -f "$TEMPLATES/$module" ]; then
+    local src=""
+    if [ -f "$TEMPLATES/$module.md" ]; then
+      src="$TEMPLATES/$module.md"
+      copy_if_missing "$src" "$module.md"
+    else
+      src="$TEMPLATES/$module"
+      copy_if_missing "$src" "$module"
+    fi
+    return
+  fi
+
+  error "Unknown module: $module"
+  echo ""
+  echo "Run 'hexis list' to see available modules."
+  exit 1
+}
+
+cmd_list() {
+  echo ""
+  printf "${BOLD}Available modules${RESET}\n"
+  echo ""
+
+  # Skills
+  if [ -d "$EXAMPLES/skills" ]; then
+    printf "${BOLD}Skills:${RESET}\n"
+    for skill_dir in "$EXAMPLES/skills"/*/; do
+      if [ -f "$skill_dir/SKILL.md" ]; then
+        local name
+        name=$(basename "$skill_dir")
+        # Extract description from frontmatter
+        local desc
+        desc=$(grep "^description:" "$skill_dir/SKILL.md" 2>/dev/null | head -1 | sed 's/^description: *//')
+        printf "  %-20s %s\n" "$name" "$desc"
+      fi
+    done
+    echo ""
+  fi
+
+  # Hooks
+  printf "${BOLD}Hooks:${RESET}\n"
+  for hook in "$TEMPLATES/hooks"/*.js; do
+    if [ -f "$hook" ]; then
+      local name
+      name=$(basename "$hook" .js)
+      # Extract description from first JSDoc line
+      local desc
+      desc=$(grep "^ \* Hexis" "$hook" 2>/dev/null | head -1 | sed 's/^ \* Hexis //' | sed 's/ —.*//')
+      printf "  %-20s %s\n" "$name" "${desc:-Hook}"
+    fi
+  done
+  echo ""
+
+  # Templates
+  printf "${BOLD}Templates:${RESET}\n"
+  printf "  %-20s %s\n" "CLAUDE" "Annotated CLAUDE.md with rule maturity"
+  printf "  %-20s %s\n" "MEMORY" "MEMORY.md with routing guidance"
+  printf "  %-20s %s\n" "SKILL" "Skill template file"
+  printf "  %-20s %s\n" "rule-violation-log" "Enforcement escalation tracker"
+  echo ""
+
+  dim "Usage: hexis add <module-name>"
+  echo ""
+}
+
+cmd_help() {
+  echo ""
+  printf "${BOLD}hexis${RESET} — scaffolder for the Hexis meta-cognitive framework\n"
+  echo ""
+  printf "${BOLD}Usage:${RESET}\n"
+  echo "  hexis init              Create Hexis directory structure in current project"
+  echo "  hexis add <module>      Add a module (skill, hook, or template)"
+  echo "  hexis list              List available modules"
+  echo "  hexis help              Show this help"
+  echo ""
+  printf "${BOLD}Examples:${RESET}\n"
+  echo "  hexis init              # Set up Hexis in a new project"
+  echo "  hexis add wrap          # Add the session wrap-up skill"
+  echo "  hexis add stuck-detector # Add the stuck detector hook"
+  echo "  hexis add SKILL         # Copy the skill template"
+  echo ""
+  printf "${BOLD}Learn more:${RESET}\n"
+  echo "  https://github.com/hexis-framework/hexis"
+  echo ""
+}
+
+# --- Main ---
+
+command="${1:-help}"
+shift 2>/dev/null || true
+
+case "$command" in
+  init)  cmd_init ;;
+  add)   cmd_add "$@" ;;
+  list)  cmd_list ;;
+  help)  cmd_help ;;
+  -h|--help) cmd_help ;;
+  *)
+    error "Unknown command: $command"
+    cmd_help
+    exit 1
+    ;;
+esac

@@ -213,6 +213,208 @@ cmd_list() {
   echo ""
 }
 
+# --- Sync ---
+
+SYNC_HOSTS_FILE="${HEXIS_HOME}/.sync-hosts"
+SYNC_PLIST_LABEL="com.terryli.cc-sync"
+SYNC_INTERVAL=14400  # 4 hours
+
+# Repos to keep in sync
+SYNC_REPOS=(
+  "terry-li-hm/agent-config"
+  "terry-li-hm/skills"
+)
+
+sync_setup_host() {
+  local host="$1"
+
+  printf "${BOLD}Setting up sync on ${host}${RESET}\n"
+  echo ""
+
+  # Test SSH
+  if ! ssh -o ConnectTimeout=5 "$host" "echo ok" >/dev/null 2>&1; then
+    error "Cannot SSH to $host"
+    exit 1
+  fi
+  info "SSH connection OK"
+
+  # Check prerequisites
+  ssh "$host" 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; which git >/dev/null 2>&1' || {
+    error "git not found on $host"
+    exit 1
+  }
+  ssh "$host" 'export PATH=/opt/homebrew/bin:/usr/local/bin:$PATH; gh auth status >/dev/null 2>&1' || {
+    error "gh not authenticated on $host — run: ssh $host \"gh auth login -h github.com -p https -w\""
+    exit 1
+  }
+  info "Prerequisites OK (git, gh auth)"
+
+  # Clone repos
+  for repo in "${SYNC_REPOS[@]}"; do
+    local name="${repo#*/}"
+    ssh "$host" "test -d ~/$name/.git" 2>/dev/null && {
+      warn "$name already cloned"
+    } || {
+      ssh "$host" "export PATH=/opt/homebrew/bin:/usr/local/bin:\$PATH; cd ~ && gh repo clone $repo 2>&1"
+      info "Cloned $name"
+    }
+  done
+
+  # Set up symlinks
+  ssh "$host" bash -s <<'REMOTE'
+set -e
+# ~/bin → agent-config/bin
+if [ -L ~/bin ] && [ "$(readlink ~/bin)" = "$HOME/agent-config/bin" ]; then
+  : # already correct
+elif [ -d ~/bin ] && [ ! -L ~/bin ]; then
+  mv ~/bin ~/bin.bak
+  ln -sf ~/agent-config/bin ~/bin
+else
+  ln -sf ~/agent-config/bin ~/bin
+fi
+
+# .claude directory structure
+mkdir -p ~/.claude/projects/-Users-terry/memory
+
+# Skills symlink
+ln -sf ~/skills ~/.claude/skills 2>/dev/null || true
+
+# Hooks symlink
+if [ -d ~/agent-config/claude/hooks ]; then
+  rm -rf ~/.claude/hooks 2>/dev/null || true
+  ln -sf ~/agent-config/claude/hooks ~/.claude/hooks
+fi
+
+# Memory symlink
+if [ -f ~/agent-config/claude/memory/MEMORY.md ]; then
+  ln -sf ~/agent-config/claude/memory/MEMORY.md ~/.claude/projects/-Users-terry/memory/MEMORY.md 2>/dev/null || true
+fi
+
+# Settings (copy, not symlink — may need local tweaks)
+if [ -f ~/agent-config/claude/settings.json ]; then
+  cp ~/agent-config/claude/settings.json ~/.claude/settings.json
+fi
+REMOTE
+  info "Symlinks and .claude directory configured"
+
+  # Install LaunchAgent (macOS) or cron (Linux)
+  local os
+  os=$(ssh "$host" "uname -s")
+  if [ "$os" = "Darwin" ]; then
+    ssh "$host" "cat > ~/Library/LaunchAgents/${SYNC_PLIST_LABEL}.plist" <<PLIST
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>${SYNC_PLIST_LABEL}</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string>-c</string>
+        <string>export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin; git -C \$HOME/agent-config pull --ff-only 2>&1; git -C \$HOME/skills pull --ff-only 2>&1</string>
+    </array>
+    <key>StartInterval</key>
+    <integer>${SYNC_INTERVAL}</integer>
+    <key>StandardOutPath</key>
+    <string>/tmp/cc-sync.log</string>
+    <key>StandardErrorPath</key>
+    <string>/tmp/cc-sync.log</string>
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
+PLIST
+    ssh "$host" "launchctl unload ~/Library/LaunchAgents/${SYNC_PLIST_LABEL}.plist 2>/dev/null; launchctl load ~/Library/LaunchAgents/${SYNC_PLIST_LABEL}.plist"
+    info "LaunchAgent installed (every $(( SYNC_INTERVAL / 3600 ))h + on login)"
+  else
+    # Linux: use cron
+    local cron_cmd="*/$(( SYNC_INTERVAL / 60 )) * * * * cd \$HOME && git -C agent-config pull --ff-only && git -C skills pull --ff-only >> /tmp/cc-sync.log 2>&1"
+    ssh "$host" "(crontab -l 2>/dev/null | grep -v cc-sync; echo '# cc-sync'; echo '$cron_cmd') | crontab -"
+    info "Cron job installed (every $(( SYNC_INTERVAL / 60 ))m)"
+  fi
+
+  # Register host
+  touch "$SYNC_HOSTS_FILE"
+  if ! grep -q "^${host}$" "$SYNC_HOSTS_FILE" 2>/dev/null; then
+    echo "$host" >> "$SYNC_HOSTS_FILE"
+  fi
+
+  echo ""
+  info "Sync configured for $host"
+  dim "Trigger manual sync: hexis sync now $host"
+  dim "Check status:        hexis sync status"
+}
+
+sync_status() {
+  if [ ! -f "$SYNC_HOSTS_FILE" ] || [ ! -s "$SYNC_HOSTS_FILE" ]; then
+    warn "No sync hosts configured. Run: hexis sync setup <host>"
+    return
+  fi
+
+  printf "${BOLD}Sync status${RESET}\n"
+  echo ""
+
+  while IFS= read -r host; do
+    [ -z "$host" ] && continue
+    printf "  ${BOLD}%s${RESET} — " "$host"
+    if ssh -o ConnectTimeout=3 "$host" "cat /tmp/cc-sync.log 2>/dev/null | tail -1" 2>/dev/null; then
+      :
+    else
+      printf "${RED}unreachable${RESET}\n"
+    fi
+  done < "$SYNC_HOSTS_FILE"
+  echo ""
+}
+
+sync_now() {
+  local host="${1:-}"
+  if [ -z "$host" ]; then
+    # Sync all known hosts
+    if [ ! -f "$SYNC_HOSTS_FILE" ]; then
+      error "No sync hosts configured"
+      exit 1
+    fi
+    while IFS= read -r h; do
+      [ -z "$h" ] && continue
+      sync_now "$h"
+    done < "$SYNC_HOSTS_FILE"
+    return
+  fi
+
+  printf "Syncing ${BOLD}%s${RESET}..." "$host"
+  if ssh -o ConnectTimeout=5 "$host" "export PATH=/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:\$PATH; git -C ~/agent-config pull --ff-only 2>&1; git -C ~/skills pull --ff-only 2>&1" >/dev/null 2>&1; then
+    printf " ${GREEN}done${RESET}\n"
+  else
+    printf " ${RED}failed${RESET}\n"
+  fi
+}
+
+cmd_sync() {
+  local subcmd="${1:-status}"
+  shift 2>/dev/null || true
+
+  case "$subcmd" in
+    setup)
+      if [ -z "${1:-}" ]; then
+        error "Usage: hexis sync setup <ssh-host>"
+        echo "  Example: hexis sync setup m3"
+        exit 1
+      fi
+      sync_setup_host "$1"
+      ;;
+    status) sync_status ;;
+    now)    sync_now "${1:-}" ;;
+    *)
+      error "Unknown sync command: $subcmd"
+      echo "  hexis sync setup <host>   Set up sync on a remote machine"
+      echo "  hexis sync status         Check sync status across hosts"
+      echo "  hexis sync now [host]     Trigger immediate sync"
+      exit 1
+      ;;
+  esac
+}
+
 cmd_help() {
   echo ""
   printf "${BOLD}hexis${RESET} — scaffolder for the Hexis meta-cognitive framework\n"
@@ -220,6 +422,7 @@ cmd_help() {
   printf "${BOLD}Usage:${RESET}\n"
   echo "  hexis init              Create Hexis directory structure in current project"
   echo "  hexis add <module>      Add a module (skill, hook, or template)"
+  echo "  hexis sync <cmd>        Sync CC environment across machines"
   echo "  hexis list              List available modules"
   echo "  hexis help              Show this help"
   echo ""
@@ -227,7 +430,8 @@ cmd_help() {
   echo "  hexis init              # Set up Hexis in a new project"
   echo "  hexis add wrap          # Add the session wrap-up skill"
   echo "  hexis add stuck-detector # Add the stuck detector hook"
-  echo "  hexis add SKILL         # Copy the skill template"
+  echo "  hexis sync setup m3    # Set up sync on a remote Mac/Linux"
+  echo "  hexis sync now          # Pull repos on all synced machines"
   echo ""
   printf "${BOLD}Learn more:${RESET}\n"
   echo "  https://github.com/hexis-framework/hexis"
@@ -242,6 +446,7 @@ shift 2>/dev/null || true
 case "$command" in
   init)  cmd_init ;;
   add)   cmd_add "$@" ;;
+  sync)  cmd_sync "$@" ;;
   list)  cmd_list ;;
   help)  cmd_help ;;
   -h|--help) cmd_help ;;
